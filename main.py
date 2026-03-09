@@ -13,6 +13,8 @@ from automation_server_client import (
     WorkItemStatus,
 )
 from kmd_nexus_client import NexusClientManager
+from kmd_nexus_client.tree_helpers import filter_by_path
+
 from odk_tools.tracking import Tracker
 from process.config import load_excel_mapping, get_excel_mapping
 
@@ -20,13 +22,30 @@ proces_navn = "Tildeling af sygeplejeartikler til terminale borgere"
 nexus: NexusClientManager
 tracker: Tracker
 
+indsatsparagraffer = {
+    "§ 83 stk. 1 nr 1",
+    "§ 83 stk. 1 nr 2",
+    "§ 83 stk. 2 nr 1",
+    "§ 83 stk. 2 nr 2",
+    "§ 119",
+    "§ 94",
+    "§ 95",
+    "§ 138",
+    "§ 26",
+    "§ 20",
+    "§9 stk. 2",
+    "§ 23",
+}
 
-def terminal_check(borger: dict):
+
+def terminalcheck(borger: dict):
     visning = nexus.borgere.hent_visning(borger)
     aktiviteter = nexus.nexus_client.get(
-            visning["_links"]["patientActivities"]["href"]
-        ).json()
-    aktiviteter = [ref for ref in aktiviteter if ref.get("patientActivityType") == "formData"]
+        visning["_links"]["patientActivities"]["href"]
+    ).json()
+    aktiviteter = [
+        ref for ref in aktiviteter if ref.get("patientActivityType") == "formData"
+    ]
     terminal_erklæring_form = next(
         (
             ref
@@ -43,15 +62,67 @@ def terminal_check(borger: dict):
     terminal_erklæring = nexus.hent_fra_reference(terminal_erklæring_form)
     terminal_dato = terminal_erklæring.get("observationTimestamp")
     if terminal_dato:
-        terminal_dato = datetime.strptime(terminal_dato, "%Y-%m-%dT%H:%M:%S.%f%z").strftime("%d-%m-%Y")
+        terminal_dato = datetime.strptime(
+            terminal_dato, "%Y-%m-%dT%H:%M:%S.%f%z"
+        ).strftime("%d-%m-%Y")
     return False, "", terminal_dato
 
-def plejehjem_check(borger: dict):
+
+def plejehjemscheck(borger: dict):
     logger = logging.getLogger(__name__)
     borgers_orgs = nexus.organisationer.hent_organisationer_for_borger(borger)
-    plejehjemsliste = {row["Plejehjem og bosteder"] for row in regler if row.get("Plejehjem og bosteder")}
-    match = next((org for org in borgers_orgs if org["organization"]["name"] in plejehjemsliste), None)
+    plejehjemsliste = {
+        row["Plejehjem og bosteder"]
+        for row in regler
+        if row.get("Plejehjem og bosteder")
+    }
+    match = next(
+        (org for org in borgers_orgs if org["organization"]["name"] in plejehjemsliste),
+        None,
+    )
     return (True, "Borger bor på plejehjem eller bosted") if match else (False, "")
+
+
+def indsatscheck(borger: dict):
+    visning = nexus.borgere.hent_visning(borger)
+    borgers_indsatsreferencer = nexus.borgere.hent_referencer(visning)
+    filtrerede_indsats_referencer = filter_by_path(
+        borgers_indsatsreferencer,
+        path_pattern="/Sundhedsfagligt grundforløb/*/Indsatser/*",
+        active_pathways_only=False,
+    ) + filter_by_path(
+        borgers_indsatsreferencer,
+        path_pattern="/Ældre og sundhedsfagligt grundforløb/*/Indsatser/*",
+        active_pathways_only=False,
+    )
+    for indsats_ref in filtrerede_indsats_referencer:
+        indsats = nexus.hent_fra_reference(indsats_ref)
+        værdier = nexus.indsatser.hent_indsats_elementer(indsats)
+        if (
+            værdier.get("paragraph", {}).get("paragraph", {}).get("section", "")
+            in indsatsparagraffer
+        ):
+            return True, f"Borger har aktiv indsats"
+    return False, ""
+
+
+def opret_opgave_til_personalet(borger: dict, data: dict, besked: str):
+    skemareferencer = nexus.skemaer.hent_skemareferencer(borger)
+    skemareference = next(
+        (ref for ref in skemareferencer if ref["id"] == data["skema_id"]), None
+    )
+    skema = nexus.hent_fra_reference(skemareference)
+    nexus.opgaver.opret_opgave(
+        objekt=skema,
+        opgave_type="Tværfagligt samarbejde",
+        titel=f"§26 afvist: {besked}",
+        ansvarlig_organisation="Sygeplejehjælpemidler",
+        ansvarlig_medarbejder=None,
+        start_dato=datetime.now().strftime("%d-%m-%Y"),
+        forfald_dato=datetime.now().strftime("%d-%m-%Y"),
+        beskrivelse="",
+    )
+
 
 async def populate_queue(workqueue: Workqueue):
     logger = logging.getLogger(__name__)
@@ -106,11 +177,31 @@ async def process_workqueue(workqueue: Workqueue):
                     besked_til_personalet = "Borger bor ikke i Odense"
                     opret_opgave_til_personalet = True
 
+                # Check om terimnalerklæring
                 if opret_opgave_til_personalet == False:
-                    opret_opgave_til_personalet, besked_til_personalet, terminal_dato = terminal_check(borger)
+                    (
+                        opret_opgave_til_personalet,
+                        besked_til_personalet,
+                        terminal_dato,
+                    ) = terminalcheck(borger)
+                # Check om borger bor på plejehjem eller bosted
+                if opret_opgave_til_personalet == False:
+                    opret_opgave_til_personalet, besked_til_personalet = (
+                        plejehjemscheck(borger)
+                    )
+                # Check om borger har aktiv indsats under relevante paragraffer
+                if opret_opgave_til_personalet == False:
+                    opret_opgave_til_personalet, besked_til_personalet = indsatscheck(
+                        borger
+                    )
 
-                if opret_opgave_til_personalet == False:
-                    opret_opgave_til_personalet, besked_til_personalet = plejehjem_check(borger)
+                if opret_opgave_til_personalet:
+                    opret_opgave_til_personalet(borger, data, besked_til_personalet)
+                    tracker.track_partial_task(
+                        process=proces_navn,
+                    )
+                    continue  # Skip resten af behandlingen og gå videre til næste item i køen
+
                 pass
             except Exception as e:
                 logger.error(f"Error processing item: {data}. Error: {e}")
