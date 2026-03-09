@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime
 import logging
 import sys
 import argparse
@@ -20,26 +21,98 @@ nexus: NexusClientManager
 tracker: Tracker
 
 
+def terminal_check(borger: dict):
+    visning = nexus.borgere.hent_visning(borger)
+    aktiviteter = nexus.nexus_client.get(
+            visning["_links"]["patientActivities"]["href"]
+        ).json()
+    aktiviteter = [ref for ref in aktiviteter if ref.get("patientActivityType") == "formData"]
+    terminal_erklæring_form = next(
+        (
+            ref
+            for ref in aktiviteter
+            if ref["formDefinition"]["title"] == "Terminalerklæring"
+            and ref["formDataStatus"] != "DELETED"
+            and (ref.get("additionalInformation") or [{}])[0].get("value") == "Ja"
+        ),
+        None,
+    )
+    if not terminal_erklæring_form:
+        return True, "Borger har ingen terminalerklæring", None
+
+    terminal_erklæring = nexus.hent_fra_reference(terminal_erklæring_form)
+    terminal_dato = terminal_erklæring.get("observationTimestamp")
+    if terminal_dato:
+        terminal_dato = datetime.strptime(terminal_dato, "%Y-%m-%dT%H:%M:%S.%f%z").strftime("%d-%m-%Y")
+    return False, "", terminal_dato
+
+def plejehjem_check(borger: dict):
+    logger = logging.getLogger(__name__)
+    borgers_orgs = nexus.organisationer.hent_organisationer_for_borger(borger)
+    plejehjemsliste = {row["Plejehjem og bosteder"] for row in regler if row.get("Plejehjem og bosteder")}
+    match = next((org for org in borgers_orgs if org["organization"]["name"] in plejehjemsliste), None)
+    return (True, "Borger bor på plejehjem eller bosted") if match else (False, "")
+
 async def populate_queue(workqueue: Workqueue):
     logger = logging.getLogger(__name__)
 
     logger.info("Hello from populate workqueue!")
+    sygeplejehjælpemidler_org = nexus.organisationer.hent_organisation_ved_navn(
+        "Sygeplejehjælpemidler"
+    )
+    aktivitetsliste = nexus.aktivitetslister.hent_aktivitetsliste(
+        navn="Opgaver - 6 mdr tilbage til 6 mdr frem",
+        organisation=sygeplejehjælpemidler_org,
+        medarbejder=None,
+    )
+    # Behold alle items hvor description = "Sygeplejehjælpemidler, Robotbruger Odense" og assignmentDescription indeholder §26:
+    opgaver = [
+        item
+        for item in aktivitetsliste
+        if item.get("description") == "Sygeplejehjælpemidler, Robotbruger Odense"
+        and "§26" in (item.get("assignmentDescription") or "")
+    ]
+
+    for opgave in opgaver:
+        workqueue.add_item(
+            data={
+                "opgave_id": opgave["id"],
+                "cpr": opgave["patients"][0]["patientIdentifier"]["identifier"],
+                "emne": opgave["name"],
+                "skema_id": opgave["children"][0]["id"],
+            },
+            reference=opgave["patients"][0]["patientIdentifier"]["identifier"]
+            + " / "
+            + str(opgave["id"]),
+        )
 
 
 async def process_workqueue(workqueue: Workqueue):
     logger = logging.getLogger(__name__)
 
     logger.info("Hello from process workqueue!")
+    opret_opgave_til_personalet = False
+    besked_til_personalet = ""
+    terminal_dato = None
 
     for item in workqueue:
         with item:
             data = item.data  # Item data deserialized from json as dict
-
             try:
                 # Process the item here
+                borger = nexus.borgere.hent_borger(data["cpr"])
+                # Hvis borger ikke bor i Odense, så skal der oprettes opgave til personalet
+                if borger["primaryAddress"]["administrativeAreaCode"] != "461":
+                    besked_til_personalet = "Borger bor ikke i Odense"
+                    opret_opgave_til_personalet = True
+
+                if opret_opgave_til_personalet == False:
+                    opret_opgave_til_personalet, besked_til_personalet, terminal_dato = terminal_check(borger)
+
+                if opret_opgave_til_personalet == False:
+                    opret_opgave_til_personalet, besked_til_personalet = plejehjem_check(borger)
                 pass
-            except WorkItemError as e:
-                # A WorkItemError represents a soft error that indicates the item should be passed to manual processing or a business logic fault
+            except Exception as e:
                 logger.error(f"Error processing item: {data}. Error: {e}")
                 item.fail(str(e))
 
