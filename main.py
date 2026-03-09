@@ -194,7 +194,7 @@ async def process_workqueue(workqueue: Workqueue):
                     opret_opgave_til_personalet, besked_til_personalet = indsatscheck(
                         borger
                     )
-
+                # Hvis et af checksne returerner True, så opret en opgave til personalet med beskeden og spring resten af behandlingen over
                 if opret_opgave_til_personalet:
                     opret_opgave_til_personalet(borger, data, besked_til_personalet)
                     tracker.track_partial_task(
