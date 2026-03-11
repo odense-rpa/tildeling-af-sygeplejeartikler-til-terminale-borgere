@@ -1,20 +1,24 @@
 import asyncio
 from datetime import datetime
+import json
 import logging
 import sys
 import argparse
 import os
+from pathlib import Path
+import httpx
+import sbsip
 
 from automation_server_client import (
     AutomationServer,
     Workqueue,
-    WorkItemError,
     Credential,
     WorkItemStatus,
 )
 from kmd_nexus_client import NexusClientManager
 from kmd_nexus_client.tree_helpers import filter_by_path
 
+from odk_tools.word import generate_docx_binary
 from odk_tools.tracking import Tracker
 from process.config import load_excel_mapping, get_excel_mapping
 
@@ -69,7 +73,6 @@ def terminalcheck(borger: dict):
 
 
 def plejehjemscheck(borger: dict):
-    logger = logging.getLogger(__name__)
     borgers_orgs = nexus.organisationer.hent_organisationer_for_borger(borger)
     plejehjemsliste = {
         row["Plejehjem og bosteder"]
@@ -102,7 +105,7 @@ def indsatscheck(borger: dict):
             værdier.get("paragraph", {}).get("paragraph", {}).get("section", "")
             in indsatsparagraffer
         ):
-            return True, f"Borger har aktiv indsats"
+            return True, "Borger har aktiv indsats"
     return False, ""
 
 
@@ -123,11 +126,46 @@ def opret_opgave_til_personalet(borger: dict, data: dict, besked: str):
         beskrivelse="",
     )
 
+def opret_forløb(borger: dict):
+    nexus.forløb.opret_forløb(borger=borger, grundforløb_navn="Ældre og sundhedsfagligt grundforløb", forløb_navn="Sag SOFF: Afgørelse - Lov om social service")
+    helhedspleje_forløb_ref = nexus.forløb.opret_forløb(borger=borger, grundforløb_navn="Ældre og sundhedsfagligt grundforløb", forløb_navn="Sag SOFF: Helhedspleje")
+    helhedspleje_forløb = nexus.hent_fra_reference(helhedspleje_forløb_ref["case"])
+    return helhedspleje_forløb
+
+def send_brev_til_borger(borger: dict, data: dict, terminal_dato: str):
+    brevfelter = {
+        "GADE": borger["primaryAddress"]["addressLine1"],
+        "POSTNR": borger["primaryAddress"]["postalCode"],
+        "BY": borger["primaryAddress"]["postalDistrict"],
+        "BORGERNAVN": borger["fullName"],
+        "DAGSDATO": datetime.now().strftime("%d-%m-%Y"),
+        "TERMINALDATO": terminal_dato,
+        "FORSLAG": data["emne"],
+        "CPR": data["cpr"],
+    }
+
+    with open("input/Tildeling af sygeplejeartikler til terminale borgere.docx", "rb") as f:
+        response = httpx.post(
+            "http://rpa-ats.odknet.dk:8331/render",
+            files={"file": ("Tildeling af sygeplejeartikler til terminale borgere.docx", f)},
+            data={"fields": json.dumps(brevfelter)},
+        )
+
+    with open("output.pdf", "wb") as f:
+        f.write(response.content)
+    
+    print(Path("output.pdf"))
+    # BRUGER TEST_CPR - SKIFT TIL data["cpr"] FOR RIGTIG CPR
+    sbsip.send_digital_post(
+        cpr=os.environ.get("TEST_CPR"),
+        overskrift="Tildeling af sygeplejeartikler til terminale borgere (§26)",
+        beskrivelse="Tildeling af sygeplejeartikler til terminale borgere (§26)",
+        vedhæftet_fil=Path("output.pdf"),
+    )
+
 
 async def populate_queue(workqueue: Workqueue):
-    logger = logging.getLogger(__name__)
 
-    logger.info("Hello from populate workqueue!")
     sygeplejehjælpemidler_org = nexus.organisationer.hent_organisation_ved_navn(
         "Sygeplejehjælpemidler"
     )
@@ -145,64 +183,71 @@ async def populate_queue(workqueue: Workqueue):
     ]
 
     for opgave in opgaver:
+        cpr = opgave["patients"][0]["patientIdentifier"]["identifier"]
         workqueue.add_item(
             data={
                 "opgave_id": opgave["id"],
-                "cpr": opgave["patients"][0]["patientIdentifier"]["identifier"],
+                "cpr": cpr,
                 "emne": opgave["name"],
                 "skema_id": opgave["children"][0]["id"],
             },
-            reference=opgave["patients"][0]["patientIdentifier"]["identifier"]
-            + " / "
-            + str(opgave["id"]),
+            reference=f"{cpr} / {opgave['id']}",
         )
 
 
 async def process_workqueue(workqueue: Workqueue):
     logger = logging.getLogger(__name__)
 
-    logger.info("Hello from process workqueue!")
-    opret_opgave_til_personalet = False
-    besked_til_personalet = ""
-    terminal_dato = None
-
     for item in workqueue:
         with item:
+            opgave_til_personalet = False
+            besked_til_personalet = ""
+            terminal_dato = "01-01-1970"
+            helhedspleje_forløb = None
+
             data = item.data  # Item data deserialized from json as dict
             try:
+
                 # Process the item here
                 borger = nexus.borgere.hent_borger(data["cpr"])
                 # Hvis borger ikke bor i Odense, så skal der oprettes opgave til personalet
                 if borger["primaryAddress"]["administrativeAreaCode"] != "461":
                     besked_til_personalet = "Borger bor ikke i Odense"
-                    opret_opgave_til_personalet = True
+                    opgave_til_personalet = True
 
                 # Check om terimnalerklæring
-                if opret_opgave_til_personalet == False:
+                if not opgave_til_personalet:
                     (
-                        opret_opgave_til_personalet,
+                        opgave_til_personalet,
                         besked_til_personalet,
                         terminal_dato,
                     ) = terminalcheck(borger)
                 # Check om borger bor på plejehjem eller bosted
-                if opret_opgave_til_personalet == False:
-                    opret_opgave_til_personalet, besked_til_personalet = (
-                        plejehjemscheck(borger)
-                    )
-                # Check om borger har aktiv indsats under relevante paragraffer
-                if opret_opgave_til_personalet == False:
-                    opret_opgave_til_personalet, besked_til_personalet = indsatscheck(
-                        borger
-                    )
+                # if not opgave_til_personalet:
+                #     opgave_til_personalet, besked_til_personalet = (
+                #         plejehjemscheck(borger)
+                #     )
+                # # Check om borger har aktiv indsats under relevante paragraffer
+                # if not opgave_til_personalet:
+                #     opgave_til_personalet, besked_til_personalet = indsatscheck(
+                #         borger
+                #     )
                 # Hvis et af checksne returerner True, så opret en opgave til personalet med beskeden og spring resten af behandlingen over
-                if opret_opgave_til_personalet:
+                if opgave_til_personalet:
                     opret_opgave_til_personalet(borger, data, besked_til_personalet)
                     tracker.track_partial_task(
                         process=proces_navn,
                     )
                     continue  # Skip resten af behandlingen og gå videre til næste item i køen
+                
+                # Opret forløb til afgørelse og helhedspleje
+                helhedspleje_forløb = opret_forløb(borger)
+                # Generer og send brev til borger
+                send_brev_til_borger(borger, data, terminal_dato)
+                print("hej")
 
-                pass
+
+
             except Exception as e:
                 logger.error(f"Error processing item: {data}. Error: {e}")
                 item.fail(str(e))
@@ -214,8 +259,8 @@ if __name__ == "__main__":
 
     # Initialize external systems for automation here..
     nexus_credential = Credential.get_credential("KMD Nexus - produktion")
-    nexus_database_credential = Credential.get_credential("KMD Nexus - database")
     tracking_credential = Credential.get_credential("Odense SQL Server")
+    SBSip_credential = Credential.get_credential("SBSip - produktion")
 
     tracker = Tracker(
         username=tracking_credential.username, password=tracking_credential.password
@@ -228,6 +273,12 @@ if __name__ == "__main__":
         timeout=60,
     )
 
+    sbsip.start_sbsip(
+        brugernavn=SBSip_credential.username,
+        adgangskode=SBSip_credential.password,
+    )
+
+
     # Parse command line arguments
     parser = argparse.ArgumentParser(description=proces_navn)
     parser.add_argument(
@@ -237,11 +288,16 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        "--word-template",
+        default=os.environ.get("LETTER_TEMPLATE_PATH"),
+        help="Path to the Word template for letter generation (default: ./Tildeling af sygeplejeartikler til terminale borgere.docx)",
+    )
+
+    parser.add_argument(
         "--queue",
         action="store_true",
         help="Populate the queue with test data and exit",
     )
-    parser.add_argument("--prio", default=False)
     args = parser.parse_args()
 
     # Validate Excel files exists (skip validation for Windows paths on Linux)

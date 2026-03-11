@@ -10,9 +10,12 @@ dependencies = [
     "odk-tools",
     "openpyxl>=3.1.5",
     "ruff>=0.15.5",
+    "httpx>=0.27.0",
+    "sbsip",
 ]
 
 [tool.uv.sources]
 automation-server-client = { git = "https://github.com/odense-rpa/automation-server-client.git", tag = "v0.2.1" }
 kmd-nexus-client = { git = "https://github.com/odense-rpa/nexus-client.git" }
 odk-tools = { git = "https://github.com/odense-rpa/odk-tools.git" }
+sbsip = { git = "https://github.com/odense-rpa/sbsip.git" }

@@ -12,15 +12,6 @@ def get_excel_mapping() -> Dict[str, List[Dict[str, str]]]:
     return excel_mappings
 
 
-def get_citizen_mapping() -> Dict[str, List[Dict[str, str]]]:
-    """Henter citizen-mapping"""
-    if not citizen_mappings:
-        raise ValueError(
-            "citizen-mapping er ikke indlæst, brug load_excel_mapping først"
-        )
-    return citizen_mappings
-
-
 def load_excel_mapping(file_path: str, mapping_type: str = "excel"):
     """
     Indlæser excel-mapping fra en fil og gemmer den i den tilsvarende globale mapping.
@@ -28,9 +19,9 @@ def load_excel_mapping(file_path: str, mapping_type: str = "excel"):
 
     Args:
         file_path: Stien til Excel-filen
-        mapping_type: Type af mapping ("excel" eller "citizen")
+        mapping_type: Type af mapping ("excel")
     """
-    global excel_mappings, citizen_mappings
+    global excel_mappings
 
     try:
         # Load workbook
@@ -77,11 +68,9 @@ def load_excel_mapping(file_path: str, mapping_type: str = "excel"):
         # Assign to the appropriate global mapping
         if mapping_type == "excel":
             excel_mappings = all_sheets_mapping
-        elif mapping_type == "citizen":
-            citizen_mappings = all_sheets_mapping
         else:
             raise ValueError(
-                f"Unknown mapping_type: {mapping_type}. Expected 'excel' or 'citizen'"
+                f"Unknown mapping_type: {mapping_type}. Expected 'excel'"
             )
 
     except Exception as e:
