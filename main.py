@@ -127,12 +127,25 @@ def opret_opgave_til_personalet(borger: dict, data: dict, besked: str):
     )
 
 def opret_forløb(borger: dict):
+    # Opret forløb til afgørelse og helhedspleje
     nexus.forløb.opret_forløb(borger=borger, grundforløb_navn="Ældre og sundhedsfagligt grundforløb", forløb_navn="Sag SOFF: Afgørelse - Lov om social service")
-    helhedspleje_forløb_ref = nexus.forløb.opret_forløb(borger=borger, grundforløb_navn="Ældre og sundhedsfagligt grundforløb", forløb_navn="Sag SOFF: Helhedspleje")
-    helhedspleje_forløb = nexus.hent_fra_reference(helhedspleje_forløb_ref["case"])
+    nexus.forløb.opret_forløb(borger=borger, grundforløb_navn="Ældre og sundhedsfagligt grundforløb", forløb_navn="Sag SOFF: Helhedspleje")
+    # Hent det oprettede helhedspleje forløb
+    visning = nexus.borgere.hent_visning(borger)
+    borgers_referencer = nexus.borgere.hent_referencer(visning)
+    filtreret_forløb = filter_by_path(
+        borgers_referencer,
+        path_pattern="/Ældre og sundhedsfagligt grundforløb/Sag SOFF: Helhedspleje",
+        active_pathways_only=False,
+    )
+    helhedspleje_forløb = next((forløb for forløb in filtreret_forløb if forløb["name"] == "Sag SOFF: Helhedspleje"), None)
+    if not helhedspleje_forløb:
+        raise Exception("Kunne ikke finde det oprettede helhedspleje forløb i borgerens referencer")
+    helhedspleje_forløb = nexus.hent_fra_reference(helhedspleje_forløb)
+    
     return helhedspleje_forløb
 
-def send_brev_til_borger(borger: dict, data: dict, terminal_dato: str):
+def send_brev_til_borger(borger: dict, data: dict, terminal_dato: str, helhedspleje_forløb: dict):
     brevfelter = {
         "GADE": borger["primaryAddress"]["addressLine1"],
         "POSTNR": borger["primaryAddress"]["postalCode"],
@@ -144,6 +157,7 @@ def send_brev_til_borger(borger: dict, data: dict, terminal_dato: str):
         "CPR": data["cpr"],
     }
 
+    # Konverter Word skabelon til PDF ved at sende den til en ekstern render service (odknet) sammen med brevfelter som data. Gem den resulterende PDF i output.pdf og send den som digital post til borgeren via SBSip
     with open("input/Tildeling af sygeplejeartikler til terminale borgere.docx", "rb") as f:
         response = httpx.post(
             "http://rpa-ats.odknet.dk:8331/render",
@@ -151,18 +165,47 @@ def send_brev_til_borger(borger: dict, data: dict, terminal_dato: str):
             data={"fields": json.dumps(brevfelter)},
         )
 
-    with open("output.pdf", "wb") as f:
-        f.write(response.content)
+    pdf_path = Path("Tildeling af sygeplejeartikler til terminale borgere (§26).pdf")
+    pdf_path.write_bytes(response.content)
     
-    print(Path("output.pdf"))
     # BRUGER TEST_CPR - SKIFT TIL data["cpr"] FOR RIGTIG CPR
     sbsip.send_digital_post(
         cpr=os.environ.get("TEST_CPR"),
         overskrift="Tildeling af sygeplejeartikler til terminale borgere (§26)",
         beskrivelse="Tildeling af sygeplejeartikler til terminale borgere (§26)",
-        vedhæftet_fil=Path("output.pdf"),
+        vedhæftet_fil=pdf_path,
     )
 
+    # Upload dokument til nexus
+    nexus.forløb.opret_dokument(
+        borger=borger,
+        forløb=helhedspleje_forløb,
+        fil=pdf_path.read_bytes(),
+        filnavn="Bevilling tilskud sygeplejeartikler.pdf",
+        titel="Bevilling tilskud sygeplejeartikler",
+        noter=None,
+        modtaget=datetime.now(),
+    )
+
+def opret_sagsnotat(borger: dict, terminal_dato: str, data: dict):
+    skema_data = {}
+    skema_data["emne"] = "Sygeplejeartikler § 26"
+    skema_data["tekst"] = (
+        f"Der er på {datetime.now().strftime('%d-%m-%Y')} sendt bevilling til borger på "
+        f"{data['emne']} jf. Ældreloven §26.\n"
+        f"Borger er terminalerklæret pr. {terminal_dato} og opfylder kriterierne for bevilling."
+    )
+
+    skema = nexus.skemaer.opret_komplet_skema(
+        borger=borger,
+        skematype_navn="Sagsnotat - NY",
+        handling_navn="Låst",
+        data=skema_data,
+        grundforløb="Ældre og sundhedsfagligt grundforløb",
+        forløb="Sag SOFF: Helhedspleje",
+    )
+    if not skema:
+        raise Exception("Kunne ikke oprette skema for sagsnotat")
 
 async def populate_queue(workqueue: Workqueue):
 
@@ -243,7 +286,7 @@ async def process_workqueue(workqueue: Workqueue):
                 # Opret forløb til afgørelse og helhedspleje
                 helhedspleje_forløb = opret_forløb(borger)
                 # Generer og send brev til borger
-                send_brev_til_borger(borger, data, terminal_dato)
+                send_brev_til_borger(borger, data, terminal_dato, helhedspleje_forløb)
                 print("hej")
 
 

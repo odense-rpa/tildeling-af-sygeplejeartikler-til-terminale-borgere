@@ -269,8 +269,8 @@ wheels = [
 
 [[package]]
 name = "kmd-nexus-client"
-version = "0.2.12"
-source = { git = "https://github.com/odense-rpa/nexus-client.git#16807f0694bd818f665bada71ed4ce42864b5004" }
+version = "0.2.13"
+source = { git = "https://github.com/odense-rpa/nexus-client.git#9bf5883c4b3481c56270701d1d42edacf29add96" }
 dependencies = [
     { name = "authlib" },
     { name = "httpx" },
@@ -590,7 +590,7 @@ wheels = [
 [[package]]
 name = "sbsip"
 version = "0.2.0"
-source = { git = "https://github.com/odense-rpa/sbsip.git#6659cf724875679857eb36477f6d20dcf89b9024" }
+source = { git = "https://github.com/odense-rpa/sbsip.git#c0c39142a96e5443514bd855bed7501f9d5342aa" }
 dependencies = [
     { name = "httpx" },
 ]
