@@ -22,7 +22,7 @@ from odk_tools.word import generate_docx_binary
 from odk_tools.tracking import Tracker
 from process.config import load_excel_mapping, get_excel_mapping
 
-proces_navn = "Tildeling af sygeplejeartikler til terminale borgere"
+proces_navn = "Tildeling af sygeplejeartikler til terminale borger (§122)"
 nexus: NexusClientManager
 tracker: Tracker
 
@@ -188,13 +188,14 @@ def send_brev_til_borger(borger: dict, data: dict, terminal_dato: str, helhedspl
     )
 
 def opret_sagsnotat(borger: dict, terminal_dato: str, data: dict):
-    skema_data = {}
-    skema_data["emne"] = "Sygeplejeartikler § 26"
-    skema_data["tekst"] = (
-        f"Der er på {datetime.now().strftime('%d-%m-%Y')} sendt bevilling til borger på "
-        f"{data['emne']} jf. Ældreloven §26.\n"
-        f"Borger er terminalerklæret pr. {terminal_dato} og opfylder kriterierne for bevilling."
-    )
+    skema_data = {
+        "Emne": "Sygeplejeartikler § 26",
+        "Tekst": (
+            f"Der er på {datetime.now().strftime('%d-%m-%Y')} sendt bevilling til borger på "
+            f"{data['emne']} jf. Ældreloven §26.\n"
+            f"Borger er terminalerklæret pr. {terminal_dato} og opfylder kriterierne for bevilling."
+        )
+    }
 
     skema = nexus.skemaer.opret_komplet_skema(
         borger=borger,
@@ -206,6 +207,60 @@ def opret_sagsnotat(borger: dict, terminal_dato: str, data: dict):
     )
     if not skema:
         raise Exception("Kunne ikke oprette skema for sagsnotat")
+
+def opret_indsats(borger: dict):
+
+    visning = nexus.borgere.hent_visning(borger)
+    borgers_referencer = nexus.borgere.hent_referencer(visning)
+    filtrede_indsats_referencer = filter_by_path(
+        borgers_referencer,
+        path_pattern="/Ældre og sundhedsfagligt grundforløb/*/Indsatser/*",
+        active_pathways_only=False,
+    )
+    ønsket_indsats_reference = next(
+        (ref for ref in filtrede_indsats_referencer if ref["name"] == "Sygeplejeartikler - ÆL § 26"), None)
+    
+    if ønsket_indsats_reference:
+        return
+
+    nexus.indsatser.opret_indsats(
+        borger=borger,
+        grundforløb="Ældre og sundhedsfagligt grundforløb",
+        forløb="Sag SOFF: Helhedspleje",
+        indsats = "Sygeplejeartikler - ÆL § 26",
+        felter= {
+            "workflowApprovedDate": datetime.today(),
+            "billingStartDate": datetime.today(),
+            "entryDate": datetime.today(),
+            "orderedDate": datetime.today(),
+            "workflowRequestedDate": datetime.today(),
+        },
+        leverandør="Sygeplejehjælpemidler",
+        oprettelsesform="Ansøg, Bevilg, Bestil"
+    )
+
+def tilføj_organisation(borger: dict):
+    borgers_orgs = nexus.organisationer.hent_organisationer_for_borger(borger)
+    if any(org["organization"]["name"] == "Sygeplejehjælpemidler" for org in borgers_orgs):
+        return
+
+    sygeplejehjælpemidler_org = nexus.organisationer.hent_organisation_ved_navn("Sygeplejehjælpemidler")
+    nexus.organisationer.tilføj_borger_til_organisation(borger, sygeplejehjælpemidler_org)
+
+def afslut_opgave(data: dict):
+    sygeplejehjælpemidler_org = nexus.organisationer.hent_organisation_ved_navn(
+        "Sygeplejehjælpemidler"
+    )
+    aktivitetsliste = nexus.aktivitetslister.hent_aktivitetsliste(
+        navn="Opgaver - 6 mdr tilbage til 6 mdr frem",
+        organisation=sygeplejehjælpemidler_org,
+        medarbejder=None,
+    )
+    opgave = next((opgave for opgave in aktivitetsliste if opgave["id"] == data["opgave_id"]), None)
+    if not opgave:
+        raise Exception(f"Kunne ikke finde opgave med id {data['opgave_id']} for at afslutte den")
+    opgave = nexus.hent_fra_reference(opgave)
+    nexus.opgaver.luk_opgave(opgave)
 
 async def populate_queue(workqueue: Workqueue):
 
@@ -266,15 +321,15 @@ async def process_workqueue(workqueue: Workqueue):
                         terminal_dato,
                     ) = terminalcheck(borger)
                 # Check om borger bor på plejehjem eller bosted
-                # if not opgave_til_personalet:
-                #     opgave_til_personalet, besked_til_personalet = (
-                #         plejehjemscheck(borger)
-                #     )
-                # # Check om borger har aktiv indsats under relevante paragraffer
-                # if not opgave_til_personalet:
-                #     opgave_til_personalet, besked_til_personalet = indsatscheck(
-                #         borger
-                #     )
+                if not opgave_til_personalet:
+                    opgave_til_personalet, besked_til_personalet = (
+                        plejehjemscheck(borger)
+                    )
+                # Check om borger har aktiv indsats under relevante paragraffer
+                if not opgave_til_personalet:
+                    opgave_til_personalet, besked_til_personalet = indsatscheck(
+                        borger
+                    )
                 # Hvis et af checksne returerner True, så opret en opgave til personalet med beskeden og spring resten af behandlingen over
                 if opgave_til_personalet:
                     opret_opgave_til_personalet(borger, data, besked_til_personalet)
@@ -287,9 +342,17 @@ async def process_workqueue(workqueue: Workqueue):
                 helhedspleje_forløb = opret_forløb(borger)
                 # Generer og send brev til borger
                 send_brev_til_borger(borger, data, terminal_dato, helhedspleje_forløb)
+                # Opret sagsnotat i nexus
+                opret_sagsnotat(borger, terminal_dato, data)
+                # Opret indsats i nexus
+                opret_indsats(borger)
+                # Tilføj organisation "Sygeplejehjælpemidler"
+                tilføj_organisation(borger)
+                # Afslut opgave
+                afslut_opgave(data)
+                tracker.track_task(process_name=proces_navn)
+
                 print("hej")
-
-
 
             except Exception as e:
                 logger.error(f"Error processing item: {data}. Error: {e}")
