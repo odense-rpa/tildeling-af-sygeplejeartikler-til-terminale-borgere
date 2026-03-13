@@ -193,9 +193,8 @@ def send_brev_til_borger(
     pdf_path = Path("Tildeling af sygeplejeartikler til terminale borgere (§26).pdf")
     pdf_path.write_bytes(response.content)
 
-    # BRUGER TEST_CPR - SKIFT TIL data["cpr"] FOR RIGTIG CPR
     sbsip.send_digital_post(
-        cpr=os.environ.get("TEST_CPR"),
+        cpr=data["cpr"],
         overskrift="Tildeling af sygeplejeartikler til terminale borgere (§26)",
         beskrivelse="Tildeling af sygeplejeartikler til terminale borgere (§26)",
         vedhæftet_fil=pdf_path,
@@ -394,9 +393,8 @@ async def process_workqueue(workqueue: Workqueue):
                 tilføj_organisation(borger)
                 # Afslut opgave
                 afslut_opgave(data)
-                tracker.track_task(process_name=proces_navn)
 
-                print("hej")
+                tracker.track_task(process_name=proces_navn)
 
             except Exception as e:
                 logger.error(f"Error processing item: {data}. Error: {e}")
