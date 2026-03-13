@@ -126,10 +126,19 @@ def opret_opgave_til_personalet(borger: dict, data: dict, besked: str):
         beskrivelse="",
     )
 
+
 def opret_forløb(borger: dict):
     # Opret forløb til afgørelse og helhedspleje
-    nexus.forløb.opret_forløb(borger=borger, grundforløb_navn="Ældre og sundhedsfagligt grundforløb", forløb_navn="Sag SOFF: Afgørelse - Lov om social service")
-    nexus.forløb.opret_forløb(borger=borger, grundforløb_navn="Ældre og sundhedsfagligt grundforløb", forløb_navn="Sag SOFF: Helhedspleje")
+    nexus.forløb.opret_forløb(
+        borger=borger,
+        grundforløb_navn="Ældre og sundhedsfagligt grundforløb",
+        forløb_navn="Sag SOFF: Afgørelse - Lov om social service",
+    )
+    nexus.forløb.opret_forløb(
+        borger=borger,
+        grundforløb_navn="Ældre og sundhedsfagligt grundforløb",
+        forløb_navn="Sag SOFF: Helhedspleje",
+    )
     # Hent det oprettede helhedspleje forløb
     visning = nexus.borgere.hent_visning(borger)
     borgers_referencer = nexus.borgere.hent_referencer(visning)
@@ -138,14 +147,26 @@ def opret_forløb(borger: dict):
         path_pattern="/Ældre og sundhedsfagligt grundforløb/Sag SOFF: Helhedspleje",
         active_pathways_only=False,
     )
-    helhedspleje_forløb = next((forløb for forløb in filtreret_forløb if forløb["name"] == "Sag SOFF: Helhedspleje"), None)
+    helhedspleje_forløb = next(
+        (
+            forløb
+            for forløb in filtreret_forløb
+            if forløb["name"] == "Sag SOFF: Helhedspleje"
+        ),
+        None,
+    )
     if not helhedspleje_forløb:
-        raise Exception("Kunne ikke finde det oprettede helhedspleje forløb i borgerens referencer")
+        raise Exception(
+            "Kunne ikke finde det oprettede helhedspleje forløb i borgerens referencer"
+        )
     helhedspleje_forløb = nexus.hent_fra_reference(helhedspleje_forløb)
-    
+
     return helhedspleje_forløb
 
-def send_brev_til_borger(borger: dict, data: dict, terminal_dato: str, helhedspleje_forløb: dict):
+
+def send_brev_til_borger(
+    borger: dict, data: dict, terminal_dato: str, helhedspleje_forløb: dict
+):
     brevfelter = {
         "GADE": borger["primaryAddress"]["addressLine1"],
         "POSTNR": borger["primaryAddress"]["postalCode"],
@@ -158,16 +179,20 @@ def send_brev_til_borger(borger: dict, data: dict, terminal_dato: str, helhedspl
     }
 
     # Konverter Word skabelon til PDF ved at sende den til en ekstern render service (odknet) sammen med brevfelter som data. Gem den resulterende PDF i output.pdf og send den som digital post til borgeren via SBSip
-    with open("input/Tildeling af sygeplejeartikler til terminale borgere.docx", "rb") as f:
+    with open(
+        "input/Tildeling af sygeplejeartikler til terminale borgere.docx", "rb"
+    ) as f:
         response = httpx.post(
             "http://rpa-ats.odknet.dk:8331/render",
-            files={"file": ("Tildeling af sygeplejeartikler til terminale borgere.docx", f)},
+            files={
+                "file": ("Tildeling af sygeplejeartikler til terminale borgere.docx", f)
+            },
             data={"fields": json.dumps(brevfelter)},
         )
 
     pdf_path = Path("Tildeling af sygeplejeartikler til terminale borgere (§26).pdf")
     pdf_path.write_bytes(response.content)
-    
+
     # BRUGER TEST_CPR - SKIFT TIL data["cpr"] FOR RIGTIG CPR
     sbsip.send_digital_post(
         cpr=os.environ.get("TEST_CPR"),
@@ -187,6 +212,7 @@ def send_brev_til_borger(borger: dict, data: dict, terminal_dato: str, helhedspl
         modtaget=datetime.now(),
     )
 
+
 def opret_sagsnotat(borger: dict, terminal_dato: str, data: dict):
     skema_data = {
         "Emne": "Sygeplejeartikler § 26",
@@ -194,7 +220,7 @@ def opret_sagsnotat(borger: dict, terminal_dato: str, data: dict):
             f"Der er på {datetime.now().strftime('%d-%m-%Y')} sendt bevilling til borger på "
             f"{data['emne']} jf. Ældreloven §26.\n"
             f"Borger er terminalerklæret pr. {terminal_dato} og opfylder kriterierne for bevilling."
-        )
+        ),
     }
 
     skema = nexus.skemaer.opret_komplet_skema(
@@ -208,6 +234,7 @@ def opret_sagsnotat(borger: dict, terminal_dato: str, data: dict):
     if not skema:
         raise Exception("Kunne ikke oprette skema for sagsnotat")
 
+
 def opret_indsats(borger: dict):
 
     visning = nexus.borgere.hent_visning(borger)
@@ -218,8 +245,14 @@ def opret_indsats(borger: dict):
         active_pathways_only=False,
     )
     ønsket_indsats_reference = next(
-        (ref for ref in filtrede_indsats_referencer if ref["name"] == "Sygeplejeartikler - ÆL § 26"), None)
-    
+        (
+            ref
+            for ref in filtrede_indsats_referencer
+            if ref["name"] == "Sygeplejeartikler - ÆL § 26"
+        ),
+        None,
+    )
+
     if ønsket_indsats_reference:
         return
 
@@ -227,8 +260,8 @@ def opret_indsats(borger: dict):
         borger=borger,
         grundforløb="Ældre og sundhedsfagligt grundforløb",
         forløb="Sag SOFF: Helhedspleje",
-        indsats = "Sygeplejeartikler - ÆL § 26",
-        felter= {
+        indsats="Sygeplejeartikler - ÆL § 26",
+        felter={
             "workflowApprovedDate": datetime.today(),
             "billingStartDate": datetime.today(),
             "entryDate": datetime.today(),
@@ -236,16 +269,24 @@ def opret_indsats(borger: dict):
             "workflowRequestedDate": datetime.today(),
         },
         leverandør="Sygeplejehjælpemidler",
-        oprettelsesform="Ansøg, Bevilg, Bestil"
+        oprettelsesform="Ansøg, Bevilg, Bestil",
     )
+
 
 def tilføj_organisation(borger: dict):
     borgers_orgs = nexus.organisationer.hent_organisationer_for_borger(borger)
-    if any(org["organization"]["name"] == "Sygeplejehjælpemidler" for org in borgers_orgs):
+    if any(
+        org["organization"]["name"] == "Sygeplejehjælpemidler" for org in borgers_orgs
+    ):
         return
 
-    sygeplejehjælpemidler_org = nexus.organisationer.hent_organisation_ved_navn("Sygeplejehjælpemidler")
-    nexus.organisationer.tilføj_borger_til_organisation(borger, sygeplejehjælpemidler_org)
+    sygeplejehjælpemidler_org = nexus.organisationer.hent_organisation_ved_navn(
+        "Sygeplejehjælpemidler"
+    )
+    nexus.organisationer.tilføj_borger_til_organisation(
+        borger, sygeplejehjælpemidler_org
+    )
+
 
 def afslut_opgave(data: dict):
     sygeplejehjælpemidler_org = nexus.organisationer.hent_organisation_ved_navn(
@@ -256,11 +297,17 @@ def afslut_opgave(data: dict):
         organisation=sygeplejehjælpemidler_org,
         medarbejder=None,
     )
-    opgave = next((opgave for opgave in aktivitetsliste if opgave["id"] == data["opgave_id"]), None)
+    opgave = next(
+        (opgave for opgave in aktivitetsliste if opgave["id"] == data["opgave_id"]),
+        None,
+    )
     if not opgave:
-        raise Exception(f"Kunne ikke finde opgave med id {data['opgave_id']} for at afslutte den")
+        raise Exception(
+            f"Kunne ikke finde opgave med id {data['opgave_id']} for at afslutte den"
+        )
     opgave = nexus.hent_fra_reference(opgave)
     nexus.opgaver.luk_opgave(opgave)
+
 
 async def populate_queue(workqueue: Workqueue):
 
@@ -305,7 +352,6 @@ async def process_workqueue(workqueue: Workqueue):
 
             data = item.data  # Item data deserialized from json as dict
             try:
-
                 # Process the item here
                 borger = nexus.borgere.hent_borger(data["cpr"])
                 # Hvis borger ikke bor i Odense, så skal der oprettes opgave til personalet
@@ -322,14 +368,12 @@ async def process_workqueue(workqueue: Workqueue):
                     ) = terminalcheck(borger)
                 # Check om borger bor på plejehjem eller bosted
                 if not opgave_til_personalet:
-                    opgave_til_personalet, besked_til_personalet = (
-                        plejehjemscheck(borger)
+                    opgave_til_personalet, besked_til_personalet = plejehjemscheck(
+                        borger
                     )
                 # Check om borger har aktiv indsats under relevante paragraffer
                 if not opgave_til_personalet:
-                    opgave_til_personalet, besked_til_personalet = indsatscheck(
-                        borger
-                    )
+                    opgave_til_personalet, besked_til_personalet = indsatscheck(borger)
                 # Hvis et af checksne returerner True, så opret en opgave til personalet med beskeden og spring resten af behandlingen over
                 if opgave_til_personalet:
                     opret_opgave_til_personalet(borger, data, besked_til_personalet)
@@ -337,7 +381,7 @@ async def process_workqueue(workqueue: Workqueue):
                         process=proces_navn,
                     )
                     continue  # Skip resten af behandlingen og gå videre til næste item i køen
-                
+
                 # Opret forløb til afgørelse og helhedspleje
                 helhedspleje_forløb = opret_forløb(borger)
                 # Generer og send brev til borger
@@ -383,7 +427,6 @@ if __name__ == "__main__":
         brugernavn=SBSip_credential.username,
         adgangskode=SBSip_credential.password,
     )
-
 
     # Parse command line arguments
     parser = argparse.ArgumentParser(description=proces_navn)

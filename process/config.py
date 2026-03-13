@@ -69,9 +69,7 @@ def load_excel_mapping(file_path: str, mapping_type: str = "excel"):
         if mapping_type == "excel":
             excel_mappings = all_sheets_mapping
         else:
-            raise ValueError(
-                f"Unknown mapping_type: {mapping_type}. Expected 'excel'"
-            )
+            raise ValueError(f"Unknown mapping_type: {mapping_type}. Expected 'excel'")
 
     except Exception as e:
         raise RuntimeError(
