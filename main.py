@@ -139,33 +139,33 @@ def opret_forløb(borger: dict):
         grundforløb_navn="Ældre og sundhedsfagligt grundforløb",
         forløb_navn="Sag SOFF: Helhedspleje",
     )
-    # Hent det oprettede helhedspleje forløb
+    # Hent det oprettede afgørelsesforløb
     visning = nexus.borgere.hent_visning(borger)
     borgers_referencer = nexus.borgere.hent_referencer(visning)
     filtreret_forløb = filter_by_path(
         borgers_referencer,
-        path_pattern="/Ældre og sundhedsfagligt grundforløb/Sag SOFF: Helhedspleje",
+        path_pattern="/Ældre og sundhedsfagligt grundforløb/Sag SOFF: afgørelse - Lov om social service",
         active_pathways_only=False,
     )
-    helhedspleje_forløb = next(
+    afgørelses_forløb = next(
         (
             forløb
             for forløb in filtreret_forløb
-            if forløb["name"] == "Sag SOFF: Helhedspleje"
+            if forløb["name"] == "Sag SOFF: afgørelse - Lov om social service"
         ),
         None,
     )
-    if not helhedspleje_forløb:
+    if not afgørelses_forløb:
         raise Exception(
-            "Kunne ikke finde det oprettede helhedspleje forløb i borgerens referencer"
+            "Kunne ikke finde det oprettede afgørelsesforløb i borgerens referencer"
         )
-    helhedspleje_forløb = nexus.hent_fra_reference(helhedspleje_forløb)
+    afgørelses_forløb = nexus.hent_fra_reference(afgørelses_forløb)
 
-    return helhedspleje_forløb
+    return afgørelses_forløb
 
 
 def send_brev_til_borger(
-    borger: dict, data: dict, terminal_dato: str, helhedspleje_forløb: dict
+    borger: dict, data: dict, terminal_dato: str, afgørelses_forløb: dict
 ):
     brevfelter = {
         "GADE": borger["primaryAddress"]["addressLine1"],
@@ -203,7 +203,7 @@ def send_brev_til_borger(
     # Upload dokument til nexus
     nexus.forløb.opret_dokument(
         borger=borger,
-        forløb=helhedspleje_forløb,
+        forløb=afgørelses_forløb,
         fil=pdf_path.read_bytes(),
         filnavn="Bevilling tilskud sygeplejeartikler.pdf",
         titel="Bevilling tilskud sygeplejeartikler",
@@ -347,7 +347,7 @@ async def process_workqueue(workqueue: Workqueue):
             opgave_til_personalet = False
             besked_til_personalet = ""
             terminal_dato = "01-01-1970"
-            helhedspleje_forløb = None
+            afgørelses_forløb = None
 
             data = item.data  # Item data deserialized from json as dict
             try:
@@ -382,9 +382,9 @@ async def process_workqueue(workqueue: Workqueue):
                     continue  # Skip resten af behandlingen og gå videre til næste item i køen
 
                 # Opret forløb til afgørelse og helhedspleje
-                helhedspleje_forløb = opret_forløb(borger)
+                afgørelses_forløb = opret_forløb(borger)
                 # Generer og send brev til borger
-                send_brev_til_borger(borger, data, terminal_dato, helhedspleje_forløb)
+                send_brev_til_borger(borger, data, terminal_dato, afgørelses_forløb)
                 # Opret sagsnotat i nexus
                 opret_sagsnotat(borger, terminal_dato, data)
                 # Opret indsats i nexus
