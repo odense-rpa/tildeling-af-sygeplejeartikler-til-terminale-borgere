@@ -144,14 +144,14 @@ def opret_forløb(borger: dict):
     borgers_referencer = nexus.borgere.hent_referencer(visning)
     filtreret_forløb = filter_by_path(
         borgers_referencer,
-        path_pattern="/Ældre og sundhedsfagligt grundforløb/Sag SOFF: afgørelse - Lov om social service",
+        path_pattern="/Ældre og sundhedsfagligt grundforløb/Sag SOFF: Afgørelse - Lov om social service",
         active_pathways_only=False,
     )
     afgørelses_forløb = next(
         (
             forløb
             for forløb in filtreret_forløb
-            if forløb["name"] == "Sag SOFF: afgørelse - Lov om social service"
+            if forløb["name"] == "Sag SOFF: Afgørelse - Lov om social service"
         ),
         None,
     )
@@ -201,7 +201,7 @@ def send_brev_til_borger(
     )
 
     # Upload dokument til nexus
-    nexus.forløb.opret_dokument(
+    dokument = nexus.forløb.opret_dokument(
         borger=borger,
         forløb=afgørelses_forløb,
         fil=pdf_path.read_bytes(),
@@ -210,6 +210,15 @@ def send_brev_til_borger(
         noter=None,
         modtaget=datetime.now(),
     )
+
+    # Tilføj tag til dokumentet i nexus
+    tags = nexus.nexus_client.get(
+        dokument["_links"]["availableTags"]["href"]
+    ).json()
+    tag = next((tag for tag in tags if tag["name"] == "ÆL § 26"), None)
+    dokument["tags"] = dokument.get("tags", []) + [tag]
+    nexus.nexus_client.put(dokument["_links"]["self"]["href"], json=dokument)
+
 
 
 def opret_sagsnotat(borger: dict, terminal_dato: str, data: dict):
