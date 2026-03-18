@@ -464,30 +464,28 @@ if __name__ == "__main__":
 
     # Queue management
     if "--queue" in sys.argv:
-        # Validate Excel files exists (skip validation for Windows paths on Linux)
-        def is_windows_path(path: str) -> bool:
-            """Check if path is a Windows path (has drive letter or UNC path)"""
-            return (
-                (len(path) > 1 and path[1] == ":")
-                or path.startswith("\\\\")
-                or path.startswith("//")
-            )
-
-        # Load excel mapping data once on startup (only if files exist on current system)
-        if os.path.isfile(args.excel_file):
-            load_excel_mapping(args.excel_file)
-        elif not is_windows_path(args.excel_file):
-            raise FileNotFoundError(f"Excel file not found: {args.excel_file}")
-
-        regler = get_excel_mapping().get(
-            "Ark1", []
-        )  # intet "l" til sidst. Excel kan ikke have så mange karakterer.
-
         workqueue.clear_workqueue(WorkItemStatus.NEW)
         asyncio.run(populate_queue(workqueue))
         exit(0)
 
-
-
     # Process workqueue
+    # Validate Excel files exists (skip validation for Windows paths on Linux)
+    def is_windows_path(path: str) -> bool:
+        """Check if path is a Windows path (has drive letter or UNC path)"""
+        return (
+            (len(path) > 1 and path[1] == ":")
+            or path.startswith("\\\\")
+            or path.startswith("//")
+        )
+
+    # Load excel mapping data once on startup (only if files exist on current system)
+    if os.path.isfile(args.excel_file):
+        load_excel_mapping(args.excel_file)
+    elif not is_windows_path(args.excel_file):
+        raise FileNotFoundError(f"Excel file not found: {args.excel_file}")
+
+    regler = get_excel_mapping().get(
+        "Ark1", []
+    )  # intet "l" til sidst. Excel kan ikke have så mange karakterer.
     asyncio.run(process_workqueue(workqueue))
+    
