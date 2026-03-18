@@ -210,6 +210,10 @@ def send_brev_til_borger(
         noter=None,
         modtaget=datetime.now(),
     )
+    if not dokument:
+        pdf_path.unlink()  # Slet den genererede PDF, da den ikke kunne uploades til nexus
+        raise Exception("Kunne ikke oprette dokument i nexus for den genererede PDF")
+    
 
     # Tilføj tag til dokumentet i nexus
     tags = nexus.nexus_client.get(
@@ -219,6 +223,7 @@ def send_brev_til_borger(
     dokument["tags"] = dokument.get("tags", []) + [tag]
     nexus.nexus_client.put(dokument["_links"]["self"]["href"], json=dokument)
 
+    pdf_path.unlink()
 
 
 def opret_sagsnotat(borger: dict, terminal_dato: str, data: dict):
