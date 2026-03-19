@@ -105,8 +105,8 @@ def indsatscheck(borger: dict):
             værdier.get("paragraph", {}).get("paragraph", {}).get("section", "")
             in indsatsparagraffer
         ):
-            return True, "Borger har aktiv indsats"
-    return False, ""
+            return False, ""
+    return True, "Borger har ikke nogen accepteret indsats"
 
 
 def opret_opgave_til_personalet(borger: dict, data: dict, besked: str):
