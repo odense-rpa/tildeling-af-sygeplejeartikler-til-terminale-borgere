@@ -121,8 +121,8 @@ def opret_opgave_til_personalet(borger: dict, data: dict, besked: str):
         titel=f"§26 afvist: {besked}",
         ansvarlig_organisation="Sygeplejehjælpemidler",
         ansvarlig_medarbejder=None,
-        start_dato=datetime.now().strftime("%d-%m-%Y"),
-        forfald_dato=datetime.now().strftime("%d-%m-%Y"),
+        start_dato=datetime.now().date(),
+        forfald_dato=datetime.now().date(),
         beskrivelse="",
     )
 
