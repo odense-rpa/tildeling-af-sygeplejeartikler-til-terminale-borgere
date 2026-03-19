@@ -391,7 +391,7 @@ async def process_workqueue(workqueue: Workqueue):
                 if opgave_til_personalet:
                     opret_opgave_til_personalet(borger, data, besked_til_personalet)
                     tracker.track_partial_task(
-                        process=proces_navn,
+                        process_name=proces_navn,
                     )
                     continue  # Skip resten af behandlingen og gå videre til næste item i køen
 
