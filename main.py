@@ -112,7 +112,7 @@ def indsatscheck(borger: dict):
 def opret_opgave_til_personalet(borger: dict, data: dict, besked: str):
     skemareferencer = nexus.skemaer.hent_skemareferencer(borger)
     skemareference = next(
-        (ref for ref in skemareferencer if ref["id"] == data["skema_id"]), None
+        (ref for ref in skemareferencer if ref["Skemaid"] == data["skema_id"]), None
     )
     skema = nexus.hent_fra_reference(skemareference)
     nexus.opgaver.opret_opgave(
