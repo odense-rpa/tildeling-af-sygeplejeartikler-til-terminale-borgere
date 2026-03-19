@@ -193,8 +193,9 @@ def send_brev_til_borger(
     pdf_path = Path("Tildeling af sygeplejeartikler til terminale borgere (§26).pdf")
     pdf_path.write_bytes(response.content)
 
+    cpr_uden_bindestreg = data["cpr"].replace("-", "")
     sbsip.send_digital_post(
-        cpr=data["cpr"],
+        cpr=cpr_uden_bindestreg,
         overskrift="Tildeling af sygeplejeartikler til terminale borgere (§26)",
         beskrivelse="Tildeling af sygeplejeartikler til terminale borgere (§26)",
         vedhæftet_fil=pdf_path,
