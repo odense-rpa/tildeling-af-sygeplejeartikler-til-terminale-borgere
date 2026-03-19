@@ -180,12 +180,12 @@ def send_brev_til_borger(
 
     # Konverter Word skabelon til PDF ved at sende den til en ekstern render service (odknet) sammen med brevfelter som data. Gem den resulterende PDF i output.pdf og send den som digital post til borgeren via SBSip
     with open(
-        "input/Tildeling af sygeplejeartikler til terminale borgere.docx", "rb"
+        args.word_template, "rb"
     ) as f:
         response = httpx.post(
             "http://rpa-ats.odknet.dk:8331/render",
             files={
-                "file": ("Tildeling af sygeplejeartikler til terminale borgere.docx", f)
+                "file": (args.word_template, f)
             },
             data={"fields": json.dumps(brevfelter)},
         )
