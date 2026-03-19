@@ -117,7 +117,7 @@ def opret_opgave_til_personalet(borger: dict, data: dict, besked: str):
     skema = nexus.hent_fra_reference(skemareference)
     nexus.opgaver.opret_opgave(
         objekt=skema,
-        opgave_type="Tværfagligt samarbejde",
+        opgave_type="Myndigheds sagsbehandling",
         titel=f"§26 afvist: {besked}",
         ansvarlig_organisation="Sygeplejehjælpemidler",
         ansvarlig_medarbejder=None,
