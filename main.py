@@ -17,13 +17,14 @@ from automation_server_client import (
 )
 from kmd_nexus_client import NexusClientManager
 from kmd_nexus_client.tree_helpers import filter_by_path
+from datafordeler import Datafordeler as DatafordelerClient
 
-from odk_tools.word import generate_docx_binary
 from odk_tools.tracking import Tracker
 from process.config import load_excel_mapping, get_excel_mapping
 
 proces_navn = "Tildeling af sygeplejeartikler til terminale borger (§122)"
 nexus: NexusClientManager
+datafordeler: DatafordelerClient
 tracker: Tracker
 
 indsatsparagraffer = {
@@ -193,12 +194,16 @@ def send_brev_til_borger(
     pdf_path = Path("Tildeling af sygeplejeartikler til terminale borgere (§26).pdf")
     pdf_path.write_bytes(response.content)
 
+
     cpr_uden_bindestreg = data["cpr"].replace("-", "")
+    adresse, post_nr = datafordeler.hent_adresse_til_sbsip(cpr=cpr_uden_bindestreg)
     sbsip.send_digital_post(
         cpr=cpr_uden_bindestreg,
         overskrift="Tildeling af sygeplejeartikler til terminale borgere (§26)",
         beskrivelse="Tildeling af sygeplejeartikler til terminale borgere (§26)",
         vedhæftet_fil=pdf_path,
+        adresse=adresse,
+        post_nr=post_nr,
     )
 
     # Upload dokument til nexus
@@ -424,6 +429,14 @@ if __name__ == "__main__":
     nexus_credential = Credential.get_credential("KMD Nexus - produktion")
     tracking_credential = Credential.get_credential("Odense SQL Server")
     SBSip_credential = Credential.get_credential("SBSip - produktion")
+
+    # Overskriv stien i forbindelse med udvikling
+    certifikat_sti = os.getenv("CERTIFIKATER", "/certifikater")
+    datafordeler = DatafordelerClient(
+        certifikat_sti=os.path.join(certifikat_sti, "datafordeler.crt"),
+        certifikat_nøglefil=os.path.join(certifikat_sti, "datafordeler.key"),
+    )
+
 
     tracker = Tracker(
         username=tracking_credential.username, password=tracking_credential.password
