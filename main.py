@@ -195,17 +195,6 @@ def send_brev_til_borger(
     pdf_path.write_bytes(response.content)
 
 
-    cpr_uden_bindestreg = data["cpr"].replace("-", "")
-    adresse, post_nr = datafordeler.hent_adresse_til_sbsip(cpr=cpr_uden_bindestreg)
-    sbsip.send_digital_post(
-        cpr=cpr_uden_bindestreg,
-        overskrift="Tildeling af sygeplejeartikler til terminale borgere (§26)",
-        beskrivelse="Tildeling af sygeplejeartikler til terminale borgere (§26)",
-        vedhæftet_fil=pdf_path,
-        adresse=adresse,
-        post_nr=post_nr,
-    )
-
     # Upload dokument til nexus
     dokument = nexus.forløb.opret_dokument(
         borger=borger,
@@ -219,7 +208,6 @@ def send_brev_til_borger(
     if not dokument:
         pdf_path.unlink()  # Slet den genererede PDF, da den ikke kunne uploades til nexus
         raise Exception("Kunne ikke oprette dokument i nexus for den genererede PDF")
-    
 
     # Tilføj tag til dokumentet i nexus
     tags = nexus.nexus_client.get(
@@ -228,6 +216,18 @@ def send_brev_til_borger(
     tag = next((tag for tag in tags if tag["name"] == "ÆL § 26"), None)
     dokument["tags"] = dokument.get("tags", []) + [tag]
     nexus.nexus_client.put(dokument["_links"]["self"]["href"], json=dokument)
+
+    # Send med SBSip
+    cpr_uden_bindestreg = data["cpr"].replace("-", "")
+    adresse, post_nr = datafordeler.hent_adresse_til_sbsip(cpr=cpr_uden_bindestreg)
+    sbsip.send_digital_post(
+        cpr=cpr_uden_bindestreg,
+        overskrift="Tildeling af sygeplejeartikler til terminale borgere (§26)",
+        beskrivelse="Tildeling af sygeplejeartikler til terminale borgere (§26)",
+        vedhæftet_fil=pdf_path,
+        adresse=adresse,
+        post_nr=post_nr,
+    )
 
     pdf_path.unlink()
 
