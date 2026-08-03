@@ -233,6 +233,21 @@ def send_brev_til_borger(
 
 
 def opret_sagsnotat(borger: dict, terminal_dato: str, data: dict):
+    borgers_skemaer = nexus.skemaer.hent_skemareferencer(borger)
+    sagsnotat_skema = next(
+        (
+            ref
+            for ref in borgers_skemaer
+            if ref["Navn"] == "Sagsnotat - NY"
+            and ref["Dato"].astimezone().date() == datetime.now().date()
+            and ref["Forløb"] == "Sag SOFF: Helhedspleje"
+            and ref["Status"] == "Låst"
+        ),
+        None,
+    )
+    if sagsnotat_skema:
+        return  # Sagsnotat er allerede oprettet for i dag, så spring over
+
     skema_data = {
         "Emne": "Sygeplejeartikler § 26",
         "Tekst": (
@@ -403,14 +418,14 @@ async def process_workqueue(workqueue: Workqueue):
 
                 # Opret forløb til afgørelse og helhedspleje
                 afgørelses_forløb = opret_forløb(borger)
-                # Generer og send brev til borger
-                send_brev_til_borger(borger, data, terminal_dato, afgørelses_forløb)
                 # Opret sagsnotat i nexus
                 opret_sagsnotat(borger, terminal_dato, data)
                 # Opret indsats i nexus
                 opret_indsats(borger)
                 # Tilføj organisation "Sygeplejehjælpemidler"
                 tilføj_organisation(borger)
+                # Generer og send brev til borger
+                send_brev_til_borger(borger, data, terminal_dato, afgørelses_forløb)
                 # Afslut opgave
                 afslut_opgave(data)
 
