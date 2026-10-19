@@ -4,3 +4,7 @@ input/
 test*
 *.pdf
 certifikater/
+
+# Python-cachefiler
+__pycache__/
+*.py[cod]
