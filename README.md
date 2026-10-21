@@ -25,7 +25,7 @@ Automatisering der tildeler sygeplejeartikler til terminale borgere i Odense Kom
 - Adgang til **Automation Server** (arbejdskø)
 - Adgang til **KMD Nexus** (produktion)
 - Adgang til **SBSip** (Digital Post)
-- Adgang til **Datafordeler** (adresseoplysninger) inkl. gyldige certifikater
+- Adgang til **Datafordeler** (adresseoplysninger) via credential `Datafordeler`
 - En **Odense SQL Server**-konto til tracking
 
 ## Installation
@@ -42,10 +42,9 @@ Kopiér `.env.example` til `.env` og udfyld følgende:
 |---|---|
 | `EXCEL_MAPPING_PATH` | Sti til `Regelsæt.xlsx` (kan også angives via `--excel-file`) |
 | `LETTER_TEMPLATE_PATH` | Sti til Word-brevskabelonen (kan også angives via `--word-template`) |
-| `CERTIFIKATER` | Sti til mappe med Datafordeler-certifikater (standard: `/certifikater`) |
 | *(Automation Server-variabler)* | Ifølge `automation-server-client`-dokumentationen |
 
-Credentials til KMD Nexus, SBSip og SQL Server hentes automatisk fra Automation Server under kørsel.
+Credentials til KMD Nexus, SBSip, Datafordeler og SQL Server hentes automatisk fra Automation Server under kørsel.
 
 ## Kørsel
 
